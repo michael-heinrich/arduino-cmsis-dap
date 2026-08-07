@@ -77,6 +77,57 @@ void SWJ_Sequence (uint32_t count, uint8_t *data) {
 
 #if (DAP_SWD != 0)
 
+typedef struct {
+  uint8_t request;
+  uint8_t ack;
+  uint32_t data;
+} SWD_TraceEntry;
+
+#define SWD_TRACE_CAPACITY 10
+
+/* A CMSIS-DAP response is 64 bytes. Command + count + ten six-byte records
+ * occupies 62 bytes, leaving room for the transport framing. */
+static SWD_TraceEntry swd_trace[SWD_TRACE_CAPACITY];
+static uint8_t swd_trace_next;
+static uint8_t swd_trace_count;
+static uint8_t swd_trace_frozen;
+
+static void SWD_TraceRecord(uint32_t request, uint32_t ack, uint32_t data) {
+  if (swd_trace_frozen) return;
+  SWD_TraceEntry *entry = &swd_trace[swd_trace_next];
+  entry->request = (uint8_t)request;
+  entry->ack = (uint8_t)ack;
+  entry->data = data;
+  swd_trace_next = (swd_trace_next + 1) % SWD_TRACE_CAPACITY;
+  if (swd_trace_count < SWD_TRACE_CAPACITY) swd_trace_count++;
+  if (ack != DAP_TRANSFER_OK) swd_trace_frozen = 1;
+}
+
+uint32_t SWD_TraceRead(uint8_t *response) {
+  uint32_t count = swd_trace_count;
+  uint32_t index = (swd_trace_next + SWD_TRACE_CAPACITY - count) % SWD_TRACE_CAPACITY;
+  uint8_t *start = response;
+
+  *response++ = count;
+  while (count--) {
+    const SWD_TraceEntry *entry = &swd_trace[index];
+    *response++ = entry->request;
+    *response++ = entry->ack;
+    *response++ = (uint8_t)(entry->data >> 0);
+    *response++ = (uint8_t)(entry->data >> 8);
+    *response++ = (uint8_t)(entry->data >> 16);
+    *response++ = (uint8_t)(entry->data >> 24);
+    index = (index + 1) % SWD_TRACE_CAPACITY;
+  }
+  return response - start;
+}
+
+void SWD_TraceClear(void) {
+  swd_trace_next = 0;
+  swd_trace_count = 0;
+  swd_trace_frozen = 0;
+}
+
 
 // SWD Transfer I/O
 //   request: A[3:2] RnW APnDP
@@ -90,6 +141,7 @@ uint8_t SWD_Transfer##speed (uint32_t request, uint32_t *data) {                
   uint32_t parity;                                                              \
                                                                                 \
   uint32_t n;                                                                   \
+  val = 0;                                                                      \
                                                                                 \
   /* Packet Request */                                                          \
   parity = 0;                                                                   \
@@ -171,6 +223,7 @@ uint8_t SWD_Transfer##speed (uint32_t request, uint32_t *data) {                
       }                                                                         \
     }                                                                           \
     PIN_SWDIO_OUT(1);                                                           \
+    SWD_TraceRecord(request, ack, val);                                         \
     return (ack);                                                               \
   }                                                                             \
                                                                                 \
@@ -193,6 +246,7 @@ uint8_t SWD_Transfer##speed (uint32_t request, uint32_t *data) {                
       }                                                                         \
     }                                                                           \
     PIN_SWDIO_OUT(1);                                                           \
+    SWD_TraceRecord(request, ack, val);                                         \
     return (ack);                                                               \
   }                                                                             \
                                                                                 \
@@ -201,6 +255,7 @@ uint8_t SWD_Transfer##speed (uint32_t request, uint32_t *data) {                
     SW_CLOCK_CYCLE();                   /* Back off data phase */               \
   }                                                                             \
   PIN_SWDIO_OUT(1);                                                             \
+  SWD_TraceRecord(request, ack, val);                                           \
   return (ack);                                                                 \
 }
 

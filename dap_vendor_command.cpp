@@ -23,26 +23,20 @@
 #include "uart.h"
 #include "DAP.h"
 
-// Process DAP Vendor command and prepare response
-// Default function (can be overridden)
-//   request:  pointer to request data
-//   response: pointer to response data
-//   return:   number of bytes in response
-// this function is declared as __weak in DAP.c
-//uint32_t DAP_ProcessVendorCommand(uint8_t *request, uint8_t *response) {
-//
-//    // get unique ID command
-//    if (*request == ID_DAP_Vendor0) {
-//#define FOO "I have no idea what I'm doing"
-//        *response++ = ID_DAP_Vendor0;
-//        *response++ = strlen(FOO);
-//        strcpy((char *)response, FOO);
-//        return (strlen(FOO) + 2);
-//    }
-//
-//    // else return invalid command
-//    else {
-//        *response = ID_DAP_Invalid;
-//    }
-//    return (1);
-//}
+// Retrieve the in-memory SWD trace.  Each entry is request, ACK, and the
+// little-endian data word observed or written during that transfer.
+uint32_t DAP_ProcessVendorCommand(uint8_t *request, uint8_t *response) {
+    if (*request == ID_DAP_Vendor0) {
+        *response++ = ID_DAP_Vendor0;
+        return SWD_TraceRead(response) + 1;
+    }
+
+    if (*request == ID_DAP_Vendor1) {
+        SWD_TraceClear();
+        *response = ID_DAP_Vendor1;
+        return 1;
+    }
+
+    *response = ID_DAP_Invalid;
+    return 1;
+}

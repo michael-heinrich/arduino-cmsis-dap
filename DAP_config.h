@@ -67,7 +67,10 @@ Provides definitions about:
 #define IO_PORT_WRITE_CYCLES    2               ///< I/O Cycles: 2=default, 1=Cortex-M0+ fast I/0
 
 #if !defined(DAP_SERIAL_LOG)
-#define DAP_SERIAL_LOG          1
+/* Raw HID is the only USB interface in this firmware build.  Logging to
+ * Serial therefore has no host endpoint to drain and eventually blocks the
+ * probe after a few DAP commands (upstream issue #5). */
+#define DAP_SERIAL_LOG          0
 #endif
 
 /// Indicate that Serial Wire Debug (SWD) communication mode is available at the Debug Access Port.
@@ -194,6 +197,14 @@ Configures the DAP Hardware I/O pins for JTAG mode:
  - TDO to input mode.
 */
 static __inline void PORT_JTAG_SETUP (void) {
+  // Drive reset inactive before enabling its output driver. On Teensy 4.x,
+  // digitalWrite() only controls the pull resistor while the pin is an input;
+  // digitalWriteFast() sets the output latch without driving the pin yet.
+#ifdef TEENSYDUINO
+  digitalWriteFast(PIN_nRESET, HIGH);
+#else
+  digitalWrite(PIN_nRESET, HIGH);
+#endif
   pinMode(PIN_SWCLK, OUTPUT);
   pinMode(PIN_SWDIO, OUTPUT);
   pinMode(PIN_nRESET, OUTPUT);
@@ -207,6 +218,14 @@ Configures the DAP Hardware I/O pins for Serial Wire Debug (SWD) mode:
  - TDI, TMS, nTRST to HighZ mode (pins are unused in SWD mode).
 */
 static __inline void PORT_SWD_SETUP (void) {
+  // Drive reset inactive before enabling its output driver. On Teensy 4.x,
+  // digitalWrite() only controls the pull resistor while the pin is an input;
+  // digitalWriteFast() sets the output latch without driving the pin yet.
+#ifdef TEENSYDUINO
+  digitalWriteFast(PIN_nRESET, HIGH);
+#else
+  digitalWrite(PIN_nRESET, HIGH);
+#endif
   pinMode(PIN_SWCLK, OUTPUT);
   pinMode(PIN_SWDIO, OUTPUT);
   pinMode(PIN_nRESET, OUTPUT);
@@ -301,7 +320,11 @@ Configure the SWDIO DAP hardware I/O pin to input mode. This function is
 called prior \ref PIN_SWDIO_IN function calls.
 */
 static __forceinline void     PIN_SWDIO_OUT_DISABLE (void) {
-  pinMode(PIN_SWDIO, INPUT_PULLUP);
+  /* SWDIO is actively driven high before turnaround.  Do not enable the
+   * Teensy's comparatively strong internal pull-up while the target owns the
+   * line: it changes the turnaround/load characteristics and can mask the
+   * target's release of the bus. */
+  pinMode(PIN_SWDIO, INPUT);
 }
 
 
@@ -449,4 +472,3 @@ static __inline uint32_t RESET_TARGET (void) {
 
 
 #endif /* __DAP_CONFIG_H__ */
-

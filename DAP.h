@@ -191,6 +191,12 @@ extern void     JTAG_WriteAbort (uint32_t data);
 extern uint8_t  JTAG_Transfer   (uint32_t request, uint32_t *data);
 extern uint8_t  SWD_Transfer    (uint32_t request, uint32_t *data);
 
+// Diagnostic trace for the most recent SWD transfers.  It is retrieved via
+// CMSIS-DAP vendor command 0x80 and is intentionally recorded only after a
+// transfer has completed, so it cannot affect SWD edge timing.
+extern uint32_t SWD_TraceRead(uint8_t *response);
+extern void     SWD_TraceClear(void);
+
 extern void     Delayms         (uint32_t delay);
 
 extern uint32_t DAP_ProcessVendorCommand (uint8_t *request, uint8_t *response);
