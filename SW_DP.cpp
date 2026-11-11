@@ -100,7 +100,7 @@ static void SWD_TraceRecord(uint32_t request, uint32_t ack, uint32_t data) {
   entry->data = data;
   swd_trace_next = (swd_trace_next + 1) % SWD_TRACE_CAPACITY;
   if (swd_trace_count < SWD_TRACE_CAPACITY) swd_trace_count++;
-  if (ack != DAP_TRANSFER_OK) swd_trace_frozen = 1;
+  // SWD_Transfer freezes after recovery, so RESEND results remain visible.
 }
 
 uint32_t SWD_TraceRead(uint8_t *response) {
@@ -223,7 +223,7 @@ uint8_t SWD_Transfer##speed (uint32_t request, uint32_t *data) {                
       }                                                                         \
     }                                                                           \
     PIN_SWDIO_OUT(1);                                                           \
-    SWD_TraceRecord(request, ack, val);                                         \
+    SWD_TraceRecord(request, ack, (request & DAP_TRANSFER_RnW) ? val : *data);     \
     return (ack);                                                               \
   }                                                                             \
                                                                                 \
@@ -274,11 +274,30 @@ SWD_TransferFunction(Slow);
 //   data:    DATA[31:0]
 //   return:  ACK[2:0]
 uint8_t  SWD_Transfer(uint32_t request, uint32_t *data) {
-  if (DAP_Data.fast_clock) {
-    return SWD_TransferFast(request, data);
-  } else {
-    return SWD_TransferSlow(request, data);
+  uint8_t ack = DAP_Data.fast_clock ? SWD_TransferFast(request, data)
+                                    : SWD_TransferSlow(request, data);
+  // RESEND recovers corrupted data without repeating an AP operation.
+  const bool recoverable = (request & DAP_TRANSFER_RnW) &&
+      ((request & DAP_TRANSFER_APnDP) || ((request & 0x0f) == (DP_RDBUFF | DAP_TRANSFER_RnW)));
+  if (ack != DAP_TRANSFER_ERROR || !recoverable) {
+    if (ack != DAP_TRANSFER_OK && ack != DAP_TRANSFER_WAIT) swd_trace_frozen = 1;
+    return ack;
   }
+
+  unsigned attempts = 0;
+  for (; attempts < 3 && !DAP_TransferAbort;) {
+    ++attempts;
+    ack = DAP_Data.fast_clock
+        ? SWD_TransferFast(DP_RESEND | DAP_TRANSFER_RnW, data)
+        : SWD_TransferSlow(DP_RESEND | DAP_TRANSFER_RnW, data);
+    if (ack != DAP_TRANSFER_ERROR && ack != DAP_TRANSFER_WAIT) break;
+  }
+  // Never return WAIT: the caller would retry the original AP operation.
+  if (ack == DAP_TRANSFER_WAIT) ack = DAP_TRANSFER_ERROR;
+  // Synthetic trace entry: final status, number of attempts, abort flag.
+  SWD_TraceRecord(0xf0, ack, attempts | (DAP_TransferAbort ? 0x100U : 0));
+  swd_trace_frozen = 1;
+  return ack;
 }
 
 

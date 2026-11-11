@@ -92,7 +92,9 @@ uint8_t rawhidResponse[DAP_PACKET_SIZE];
 
 
 void setup() {
+#if DAP_SERIAL_LOG
   Serial.begin(115200);
+#endif
 
   DAP_Setup();
 

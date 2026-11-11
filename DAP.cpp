@@ -20,7 +20,7 @@
 #include "semihost.h"
 
 
-#define DAP_FW_VER      "1.0"   // Firmware Version
+#define DAP_FW_VER      "1.4-timing"   // Firmware Version
 
 
 #if (DAP_PACKET_SIZE < 64)

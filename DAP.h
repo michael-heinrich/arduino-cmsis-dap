@@ -209,10 +209,17 @@ extern void     DAP_Setup (void);
 #define DELAY_SLOW_CYCLES       3       // Number of cycles for one iteration
 #endif
 static __forceinline void PIN_DELAY_SLOW (uint32_t delay) {
-  int32_t count;
-
-  count = delay;
-  while (--count);
+#if defined(__IMXRT1062__)
+  // Teensy 4 startup enables CYCCNT. Unlike an empty C loop, volatile
+  // hardware-counter reads survive optimization. clock_delay is expressed
+  // in DELAY_SLOW_CYCLES units by DAP_SWJ_Clock.
+  const uint32_t cycles = delay * DELAY_SLOW_CYCLES;
+  const uint32_t start = ARM_DWT_CYCCNT;
+  while ((uint32_t)(ARM_DWT_CYCCNT - start) < cycles) {}
+#else
+  volatile uint32_t count = delay;
+  while (count) --count;
+#endif
 }
 
 // Fixed delay for fast clock generation
